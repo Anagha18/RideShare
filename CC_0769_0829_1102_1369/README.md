@@ -8,6 +8,7 @@ The Rides and Users instance is run on two separate instances, the code (includi
 *Commands to run Rides:*
 
   docker system prune -a
+  
   docker build -t users:latest .
   
   sudo docker run   -p 80:5000 -ti users:latest
