@@ -1,4 +1,6 @@
 The final project can be found at /project/final
+
+
 Run the command sudo docker-compose up -d --scale master=2 to launch the initial 5 containers.
 
 The Rides and Users instance is run on two separate instances, the code (including Dockerfile) for which can be found at /rides and /users
