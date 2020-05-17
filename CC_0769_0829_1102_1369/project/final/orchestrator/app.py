@@ -32,6 +32,13 @@ client = docker.DockerClient(base_url='unix://var/run/docker.sock')
 app = Flask(__name__)
 
 ######### GLOBAL VARIABLES #########
+#bool_user gives the result of the response
+#count_all counts the number of read requests
+#how_die is a flag that is set to 1 if a worker is killed due to scaling down; so that HA doesn't come into picture
+#worker_pids contains a list of all worker PIDs
+#pidlist contains a list of all PIDs
+#masterpid contains the master PID
+#slavelist is the list of all slaves
 global bool_user
 global count_all
 global how_die
@@ -60,14 +67,17 @@ def leader_election():
     slavelist=[]
     zk.set("/producer/goingon",b"1")
     listofkids=[]
+    
     #FIND LIST OF CHILDREN
     for x in children:
         if (x!='goingon'):
             listofkids.append(int(x))
+            
     #FIND MASTERPID
     masterpid=min(listofkids)
     pathname="/producer/"+str(masterpid)
     zk.set(pathname,b"1")
+    
     #SET ALL SLAVES TO 0
     for x in listofkids:
        if(str(x)!='goingon' and str(x)!=str(masterpid)):
@@ -76,6 +86,8 @@ def leader_election():
            zk.set(p,b"0")
 
 ######### RPC RESPONSE QUEUE FUNCTION #########
+#We come to this function after the worker sends the read response back
+#Based on the type of response received, we return the appropriate string / boolean value / JSON object
 def onreadresponse(ch, method, props, body):
     global response
     global bool_user
@@ -109,6 +121,13 @@ def onreadresponse(ch, method, props, body):
         ch.queue_declare(queue='sendtomaster',durable=True)
         ch.basic_publish(exchange='',routing_key='sendtomaster',body=response)
 
+        
+
+######### SCALING FUNCTION #########
+#Get the number of slaves currently running and the number of slaves needed(based on the number of requests)
+#If it's equal, do nothing
+#If it's lesser than needed, create more slaves
+#If it's more than needed, kill slaves
 def newCont():
     global count
     global slavelist
@@ -188,6 +207,9 @@ print(masterpid,file=sys.stderr)
 pathname="/producer/"+str(masterpid)
 
 ######### CHILDWATCH #########
+#High Availability
+#If children have increased (scaling) - set their data to 0 (slave)
+#If children have decreased (not due to scaling) - create a new slave
 @zk.ChildrenWatch("/producer")
 def watch_children(child):
     global children
@@ -215,6 +237,10 @@ def watch_children(child):
             
 
 ######### CRASH SLAVE #########
+#Get list of slave PIDs
+#Find max PID
+#Find the container ID of that PID
+#Kill slave based on container ID
 @app.route('/api/v1/crash/slave',methods=['POST'])
 def crashslave():
     global children
@@ -242,6 +268,9 @@ def crashslave():
     return jsonify(pid_killed_in_list),200
 
 ########## CRASH MASTER #########
+#Find master PID
+#Find the container ID of that PID
+#Kill master based on container ID
 @app.route('/api/v1/crash/master',methods=['POST'])
 def crashmaster():
     global maasterpid
@@ -274,16 +303,6 @@ def workerlist():
             worker_list.append(int(x))
     worker_list.sort()
     return jsonify(worker_list),200
-
-@app.route("/api/v1/db/clear",methods=["POST"])
-def clear_data():
-    if (request.method != 'POST'):
-        return jsonify({}), 405
-    d=dict()
-    d['flag']=23
-    d['part']=0
-    r=requests.post("http://18.214.10.98:80/api/v1/db/write",json=d)
-    return jsonify(),200    
 
 ########## READ API #########
 @app.route('/api/v1/db/read',methods=['POST'])
