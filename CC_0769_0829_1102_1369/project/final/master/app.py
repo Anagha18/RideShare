@@ -22,26 +22,31 @@ from kazoo.client import KazooClient
 from kazoo.client import KazooState
 app = Flask(__name__)
 ######### GLOBAL VARIABLES DECLARATION #########
+#isMaster is -1 if the worker hasn't been alloted any role yet, 0 if it's the slave and 1 if it's the master
+#cont_id contains that worker's container ID
 global isMaster
 global cont_id
 global count
 count=0
 isMaster=2
 
-######### CLEAR DAATABASE FUNCTION, IF THE DB ALREADY EXISTS #########
+######### CLEAR DATABASE FUNCTION #########
 def clear_data():
   meta = db.metadata
   for table in reversed(meta.sorted_tables):
     db.session.execute(table.delete())
   db.session.commit()
  
+######### SETTING UP DOCKER CLIENT FOR DOCKER SDK #########
 logging.basicConfig()
 time.sleep(20)
 client = docker.DockerClient(base_url='unix://var/run/docker.sock')
 c=docker.APIClient()
 
 
-######### FIND ITS PID #########
+######### FIND WORKER PID #########
+#We first find the container ID and store it in a while
+#We then use this ID with the inspect_container function to find PID
 def find_pid():
         global cont_id
         cmd='hostname>t.txt'
@@ -52,11 +57,14 @@ def find_pid():
         cont_id=sline[0]
         return c.inspect_container(cont_id)['State']['Pid']
 
+
 pid=find_pid()
 print("pid: ",pid)
+#Set DB name based on pid
+# 'db<pid>.sqlite'
 dbname="db"+str(pid)+".sqlite"
 
-######### PATH OF DATABASE #########
+######### DATABASE SETUP #########
 basedir=os.path.abspath(os.path.dirname(__file__))
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///"+os.path.join(basedir,dbname)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -221,6 +229,7 @@ def readcallback(ch, method, props, body):
         else:
             resp="0"
 
+    #CHECK IF RIDE CREATED BY A USERNAME EXISTS
     elif(flag==8 and part==1):
       rideId=message['rideId']
       username=message['username']
@@ -230,6 +239,7 @@ def readcallback(ch, method, props, body):
       else:
         resp="1"
 
+    #CHECK IF USERNAME EXISTS
     elif(flag==1 and part==1):
       username = message["username"]
       l=list_db_users()
@@ -238,6 +248,7 @@ def readcallback(ch, method, props, body):
       else:
         resp="0"
 
+    #CHECK IF A USER IS A PART OF A RIDE
     elif(flag==9 and part==1):
       rideId=message['rideId']
       username=message['username']
@@ -247,6 +258,7 @@ def readcallback(ch, method, props, body):
       else:
        resp="1"
 
+   #GET LIST OF USERS IN A RIDE
     elif(flag==7777 and part==1):
          ride_id=message['rideId']
          usr = Other_Users.query.all()
@@ -259,16 +271,19 @@ def readcallback(ch, method, props, body):
          usrss_to=json.dumps(dd)
          resp=usrss_to
 
+    #GET DETAILS OF RIDE BY RIDEID
     elif (flag == 4 and part==1):
         rideId = message["rideId"]
         ride = db.session.query(Rides.rideId, Rides.created_by, Rides.timestamp,Rides.source, Rides.destination).filter_by(rideId = rideId).all()
         resp=json.dumps(ride)
 
+     #GET USERNAMES BY RIDEID
     elif (flag == 5 and part==1):
      rideId = message["rideId"]
      ursr= db.session.query(Other_Users.user_names).filter_by(ID = rideId).all()
      resp=json.dumps(ursr)
 
+    #CHECK IF RIDE EXISTS
     elif (flag == 6 and part==1):
      rideId = message["rideId"]
      r=bool(Rides.query.filter_by(rideId = rideId).first())
@@ -278,6 +293,7 @@ def readcallback(ch, method, props, body):
        x=4
      resp=json.dumps(x)
 
+    #GET RIDE DETAILS
     elif(flag== 777 and part==1):
      rideId=message["rideId"]
      fkme=db.session.query(Rides.rideId,Rides.created_by,Rides.timestamp,Rides.source,Rides.destination).filter_by(rideId = rideId).one()
@@ -293,6 +309,7 @@ def readcallback(ch, method, props, body):
       l.append(llv)
       resp=str(l)
 
+      #GET RIDE DETAILS BY SOURCE AND DESTINATION
     elif (flag == 7 and part ==1):
         sourceok=message['source']
         dest =message['destination']
@@ -384,6 +401,7 @@ def writecallback(ch, method, properties, body):
         Other_Users.query.filter_by(ID=rideId).delete()
         db.session.commit()
 
+    #ADD USER TO A RIDE
     elif(flag==5 and part==1):
       ID = message["rideId"]
       username = message["username"]
@@ -392,6 +410,7 @@ def writecallback(ch, method, properties, body):
       db.session.commit()
 
 ######### DATA WATCH #########
+#When data changes, check if it's 0 or 1, and accordingly set isMaster
 @zk.DataWatch(contpath)
 def watch_node(data, stat):
     global isMaster
@@ -404,6 +423,7 @@ def watch_node(data, stat):
          masterpid=pid
 
 ######### DATA WATCH FOR LEADER ELECTION #########
+#Value of count changes based on when leader election happens
 @zk.DataWatch("/producer/goingon")
 def watch_node(data, stat):
     global isMaster
