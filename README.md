@@ -22,7 +22,7 @@ Apart from this, the orchestrator also counts all incoming HTTP requests and if 
 We referred to various tutorials to implement the project, including the official documentation of Docker SDK, Kazoo and RabbitMQ.
  
 
-### ALGORITHM/DESIGN
+### Algorithm/Design
 
 Our DBSaaS service has 5 docker containers when it is initially launched – for the RabbitMQ server, Zookeeper, orchestrator, and two workers. Apart from this, the rides and users instances along with the load balancer needs to be running before the system can start accepting requests.
 
@@ -48,6 +48,6 @@ High availability of the slaves is maintained by keeping a ChildWatch in the orc
 Based on the number of read requests sent to the orchestrator, the number of slaves are either scaled up or down. This is done by creating a thread that runs in the background with an auto timer that is reset every two minutes. When the number of requests crosses 20, a new slave is created and starts listening to the requests. If the number of requests is lesser than the threshold, then the slave with the highest PID is killed. When this happens, a flag is set to indicate to the orchestrator that the slave was killed on purpose, so that it doesn’t spawn a new slave to replace the killed one (due to high availability).
 
 
-### TESTING
+### Testing
 
 While testing our system, we primarily ran into problems with respect to the format of the output, as we had made changes to the rides and users API. When the orchestrator sent back the responses of the read requests, the format had to be rectified, which was done accordingly.
